@@ -17,7 +17,8 @@
 
 
 import os
-import sys 
+import re
+import sys
 import pickle
 import functools
 import time
@@ -549,7 +550,147 @@ class SpaceShip:
         ) 
         
         slurm.sbatch(python_path + ' launch.py')
-        
+
+    def spawn_worker_gcp(
+        self,
+        project_id,
+        region='us-central1',
+        image_uri=None,
+        machine_type='n1-standard-8',
+        accelerator_type='nvidia-tesla-t4',
+        accelerator_count=1,
+        gcs_bucket=None,
+        cpu_milli=8000,
+        memory_mib=28000,
+        job_name='SpaceTravLR',
+        lifespan=3, # hours
+        task_count=1,
+        ):
+        """
+        Submits a Google Cloud Batch job to run the analysis.
+
+        This is the Google Batch equivalent of `spawn_worker`: instead of
+        submitting to a SLURM partition, it creates a Batch job that runs
+        `python3 launch.py` inside a container built from `image_uri` (see
+        the repo's Dockerfile). The gene queue that parallel workers pull
+        from (see OracleQueue) coordinates through lock files on `self.outdir`,
+        so when `task_count > 1` or when you want results to persist,
+        `gcs_bucket` must be set to a bucket mounted at `self.outdir` in
+        every task via Cloud Storage FUSE.
+
+        Parameters
+        ----------
+        project_id : str
+            GCP project ID to submit the job under.
+        region : str, optional
+            Batch region, by default 'us-central1'.
+        image_uri : str
+            Container image with the SpaceTravLR environment and `launch.py`
+            baked in.
+        machine_type : str, optional
+            Compute Engine machine type, by default 'n1-standard-8'.
+        accelerator_type : str, optional
+            GPU accelerator type (e.g. 'nvidia-tesla-t4'), by default
+            'nvidia-tesla-t4'. Pass None to run without a GPU.
+        accelerator_count : int, optional
+            Number of GPUs per task, by default 1.
+        gcs_bucket : str, optional
+            Name of a GCS bucket to mount at `self.outdir` inside the
+            container, so parallel tasks share the same output directory
+            and gene queue lock files.
+        cpu_milli : int, optional
+            Milli-CPUs allocated per task, by default 8000 (8 vCPUs).
+        memory_mib : int, optional
+            Memory in MiB allocated per task, by default 28000.
+        job_name : str, optional
+            Name of the job, by default 'SpaceTravLR'.
+        lifespan : int, optional
+            Wall-time in hours, by default 3.
+        task_count : int, optional
+            Number of parallel worker tasks to run, by default 1.
+
+        Returns
+        -------
+        google.cloud.batch_v1.types.Job
+            The created Batch job.
+        """
+        try:
+            from google.cloud import batch_v1
+        except ImportError as e:
+            raise ImportError(
+                "spawn_worker_gcp requires the google-cloud-batch package. "
+                "Install it with `pip install google-cloud-batch`."
+            ) from e
+
+        assert image_uri, "image_uri is required (build it from the repo's Dockerfile and push it to a registry your project can pull from)"
+
+        mount_path = os.path.abspath(self.outdir)
+
+        runnable = batch_v1.Runnable()
+        runnable.container = batch_v1.Runnable.Container()
+        runnable.container.image_uri = image_uri
+        runnable.container.commands = ['python3', 'launch.py']
+
+        task = batch_v1.TaskSpec()
+
+        if gcs_bucket:
+            volume = batch_v1.Volume()
+            volume.gcs = batch_v1.GCS()
+            volume.gcs.remote_path = gcs_bucket
+            volume.mount_path = mount_path
+            task.volumes = [volume]
+            runnable.container.volumes = [f'{mount_path}:{mount_path}']
+
+        task.runnables = [runnable]
+
+        resources = batch_v1.ComputeResource()
+        resources.cpu_milli = cpu_milli
+        resources.memory_mib = memory_mib
+        task.compute_resource = resources
+
+        task.max_retry_count = 1
+        task.max_run_duration = timedelta(hours=lifespan)
+
+        group = batch_v1.TaskGroup()
+        group.task_count = task_count
+        group.task_spec = task
+
+        instance_policy = batch_v1.AllocationPolicy.InstancePolicy()
+        instance_policy.machine_type = machine_type
+
+        if accelerator_type:
+            accelerator = batch_v1.AllocationPolicy.Accelerator()
+            accelerator.type_ = accelerator_type
+            accelerator.count = accelerator_count
+            instance_policy.accelerators = [accelerator]
+
+        instances = batch_v1.AllocationPolicy.InstancePolicyOrTemplate()
+        instances.policy = instance_policy
+        instances.install_gpu_drivers = bool(accelerator_type)
+
+        allocation_policy = batch_v1.AllocationPolicy()
+        allocation_policy.instances = [instances]
+
+        job = batch_v1.Job()
+        job.task_groups = [group]
+        job.allocation_policy = allocation_policy
+        job.logs_policy = batch_v1.LogsPolicy()
+        job.logs_policy.destination = batch_v1.LogsPolicy.Destination.CLOUD_LOGGING
+
+        client = batch_v1.BatchServiceClient()
+
+        create_request = batch_v1.CreateJobRequest()
+        create_request.job = job
+        create_request.job_id = self._gcp_job_id(job_name)
+        create_request.parent = f'projects/{project_id}/locations/{region}'
+
+        return client.create_job(create_request)
+
+    def _gcp_job_id(self, job_name):
+        slug = f'{job_name}-{self.name}-{time.strftime("%Y%m%d-%H%M%S")}'
+        slug = re.sub(r'[^a-z0-9-]', '-', slug.lower()).strip('-')
+        return slug[:63]
+
     @catch_errors
     def run_spacetravlr(
         self, 

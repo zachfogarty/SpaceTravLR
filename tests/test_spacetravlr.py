@@ -267,7 +267,80 @@ class TestSpaceShip(unittest.TestCase):
             )
             
             mock_slurm.sbatch.assert_called_once_with('python3 launch.py')
-    
+
+    def test_spawn_worker_gcp_requires_image_uri(self):
+        ship = SpaceShip(name='TestShip')
+
+        with self.assertRaises(AssertionError):
+            ship.spawn_worker_gcp(project_id='test-project')
+
+    def test_spawn_worker_gcp(self):
+        from google.cloud import batch_v1
+
+        ship = SpaceShip(name='TestShip')
+
+        mock_client = MagicMock()
+        mock_client.create_job.return_value = 'created-job'
+
+        with patch('google.cloud.batch_v1.BatchServiceClient', return_value=mock_client), \
+             patch('time.strftime', return_value='20240101-120000'):
+
+            result = ship.spawn_worker_gcp(
+                project_id='test-project',
+                region='us-west1',
+                image_uri='us-west1-docker.pkg.dev/test-project/repo/spacetravlr:latest',
+                machine_type='n1-standard-4',
+                accelerator_type='nvidia-tesla-t4',
+                accelerator_count=1,
+                gcs_bucket='my-bucket/output',
+                job_name='TestJob',
+                lifespan=2,
+                task_count=3,
+            )
+
+        self.assertEqual(result, 'created-job')
+        mock_client.create_job.assert_called_once()
+
+        request = mock_client.create_job.call_args[0][0]
+        self.assertEqual(request.parent, 'projects/test-project/locations/us-west1')
+        self.assertEqual(request.job_id, 'testjob-testship-20240101-120000')
+
+        job = request.job
+        task_group = job.task_groups[0]
+        self.assertEqual(task_group.task_count, 3)
+
+        task_spec = task_group.task_spec
+        self.assertEqual(task_spec.max_run_duration.total_seconds(), 2 * 3600)
+
+        runnable = task_spec.runnables[0]
+        self.assertEqual(runnable.container.image_uri, 'us-west1-docker.pkg.dev/test-project/repo/spacetravlr:latest')
+        self.assertEqual(list(runnable.container.commands), ['python3', 'launch.py'])
+
+        volume = task_spec.volumes[0]
+        self.assertEqual(volume.gcs.remote_path, 'my-bucket/output')
+
+        instance_policy = job.allocation_policy.instances[0].policy
+        self.assertEqual(instance_policy.machine_type, 'n1-standard-4')
+        self.assertEqual(instance_policy.accelerators[0].type_, 'nvidia-tesla-t4')
+        self.assertEqual(instance_policy.accelerators[0].count, 1)
+
+    def test_spawn_worker_gcp_no_accelerator(self):
+        ship = SpaceShip(name='TestShip')
+
+        mock_client = MagicMock()
+
+        with patch('google.cloud.batch_v1.BatchServiceClient', return_value=mock_client):
+            ship.spawn_worker_gcp(
+                project_id='test-project',
+                image_uri='gcr.io/test-project/spacetravlr:latest',
+                accelerator_type=None,
+            )
+
+        request = mock_client.create_job.call_args[0][0]
+        instance_policy = request.job.allocation_policy.instances[0].policy
+        self.assertEqual(len(instance_policy.accelerators), 0)
+        self.assertFalse(request.job.allocation_policy.instances[0].install_gpu_drivers)
+
     def test_run_spacetravlr(self):
         os.makedirs('output/input_data', exist_ok=True)
         os.makedirs('output/betadata', exist_ok=True)
@@ -384,4 +457,3 @@ class TestSpaceShip(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
