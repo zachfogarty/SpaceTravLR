@@ -63,6 +63,31 @@ spacetravlr.spawn_worker(
 
 SpaceTravLR generates a queue of genes that each worker consumes in parallel. spacetravlr.spawn_worker submits a new job to the clusters.
 
+### Running on Google Cloud Batch
+
+`spawn_worker` submits to a SLURM cluster. If you don't have one, `spawn_worker_gcp` submits the same `launch.py` run as a [Google Cloud Batch](https://cloud.google.com/batch) job instead:
+
+```python
+spacetravlr.spawn_worker_gcp(
+    project_id='my-gcp-project',
+    region='us-central1',
+    image_uri='us-central1-docker.pkg.dev/my-gcp-project/spacetravlr/spacetravlr:latest',
+    gcs_bucket='my-bucket/myTonsil',  # mounted at spacetravlr.outdir in every task
+    task_count=4,                    # parallel workers pulling from the gene queue
+)
+```
+
+This requires two things beyond `pip install google-cloud-batch` (included in `requirements.txt`):
+
+1. **A container image.** Build it from the repo's `Dockerfile`, from a build context that also includes your own `launch.py` (see `tutorial/launch.py`), then push it somewhere your project can pull from:
+   ```bash
+   docker build -t us-central1-docker.pkg.dev/my-gcp-project/spacetravlr/spacetravlr:latest .
+   docker push us-central1-docker.pkg.dev/my-gcp-project/spacetravlr/spacetravlr:latest
+   ```
+2. **A GCS bucket for `gcs_bucket`.** Batch mounts it at `spacetravlr.outdir` inside every task via Cloud Storage FUSE, so parallel workers coordinate through the same gene-queue lock files the same way SLURM workers do over a shared cluster filesystem.
+
+Pass `accelerator_type=None` to run CPU-only, or set `machine_type`/`accelerator_type`/`accelerator_count` to size the GPU worker VMs.
+
 
 ##  Outputs
 <pre>

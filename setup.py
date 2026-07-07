@@ -26,6 +26,7 @@ setup(
         "torch",
         "ipykernel",
         "simple-slurm",
+        "google-cloud-batch",
         "igraph",
         "genomepy",
         "pybedtools",
@@ -53,4 +54,3 @@ setup(
     ],
     keywords="spatial transcriptomics, microniche identification, cell-cell communication",
 )
-

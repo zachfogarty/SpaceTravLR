@@ -43,6 +43,7 @@ sphinx-rtd-theme
 nbsphinx
 jscatter
 simple_slurm
+google-cloud-batch
 group_lasso
 easydict
 cellrank
