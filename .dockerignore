@@ -1,0 +1,18 @@
+# Without this file, `docker build`/`podman build` streams the whole repo
+# (2GB+, dominated by .git history and the tutorial/example datasets below)
+# to the build daemon as the context for every build, which is slow and can
+# crash a resource-constrained podman machine VM partway through `COPY . /app`.
+# None of this is needed inside the training container -- code only ever
+# reads from src/SpaceTravLR_data and the outdir/GCS-mounted data at runtime.
+.git
+data/
+docs/
+assets/
+
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+output/
+.DS_Store
