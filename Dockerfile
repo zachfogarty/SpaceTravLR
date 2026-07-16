@@ -23,8 +23,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Ubuntu 24.04 ships Python 3.12 as python3, which satisfies anndata==0.12.10's
 # Python>=3.11 requirement (requirements.txt). Ubuntu 22.04's default Python
 # 3.10 does not, hence the newer base image.
+#
+# python3-dev provides Python.h: most of the compiled dependencies here ship
+# manylinux wheels for 3.12 and skip compilation entirely, but pybedtools
+# does not publish any wheels at all and always builds its C++ extension
+# (cbedtools.cpp) from source, which needs it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 \
+        python3-dev \
         python3-venv \
         build-essential \
         bedtools \
