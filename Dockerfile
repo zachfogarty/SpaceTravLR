@@ -13,6 +13,8 @@
 #
 # Then pass that image URI to SpaceShip.spawn_worker_gcp(image_uri=...).
 
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
 FROM nvidia/cuda:12.6.3-base-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -27,15 +29,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         bedtools \
         git \
-        curl \
-        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Installed via the standalone installer rather than `pip install uv`: Ubuntu
-# 24.04's system pip refuses installs (PEP 668 "externally managed
-# environment") without this.
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:${PATH}"
+# uv comes from Astral's own image (their documented Docker install path,
+# see https://docs.astral.sh/uv/guides/integration/docker/) rather than
+# `curl astral.sh/uv/install.sh | sh` or `pip install uv`: the former can
+# fail TLS verification depending on the build host's CA trust/proxy setup,
+# and the latter hits Ubuntu 24.04's PEP 668 "externally managed
+# environment" guard on system pip.
+COPY --from=uv /uv /uvx /usr/local/bin/
 
 WORKDIR /app
 COPY . /app
