@@ -13,21 +13,29 @@
 #
 # Then pass that image URI to SpaceShip.spawn_worker_gcp(image_uri=...).
 
-FROM nvidia/cuda:12.1.1-base-ubuntu22.04
+FROM nvidia/cuda:12.6.3-base-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
+# Ubuntu 24.04 ships Python 3.12 as python3, which satisfies anndata==0.12.10's
+# Python>=3.11 requirement (requirements.txt). Ubuntu 22.04's default Python
+# 3.10 does not, hence the newer base image.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3.10 \
-        python3.10-venv \
-        python3-pip \
+        python3 \
+        python3-venv \
         build-essential \
         bedtools \
         git \
+        curl \
+        ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.10 -m pip install --no-cache-dir uv
+# Installed via the standalone installer rather than `pip install uv`: Ubuntu
+# 24.04's system pip refuses installs (PEP 668 "externally managed
+# environment") without this.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 COPY . /app
