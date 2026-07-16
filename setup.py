@@ -8,7 +8,7 @@ setup(
     description="Spatially perturbing Transcription factors, Ligands & Receptors",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    python_requires=">=3.8",
+    python_requires=">=3.11",
     install_requires=[
         "setuptools<81",
         "networkx",
@@ -40,7 +40,7 @@ setup(
         "sphinx_design",
         "sphinx_tippy",
         "sphinx_autodoc_typehints",
-        "numpy==1.26",
+        "numpy>=2",
         "jscatter"
     ],
     classifiers=[
