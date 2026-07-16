@@ -39,12 +39,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # environment" guard on system pip.
 COPY --from=uv /uv /uvx /usr/local/bin/
 
+# Install into a real venv rather than the system Python: Ubuntu 24.04 marks
+# /usr's Python as PEP 668 "externally managed", and uv enforces that marker
+# the same way pip does (passing --system alone does not opt back in). A
+# venv is exempt, and putting it first on PATH means `python3 launch.py`
+# (however it's later invoked -- spawn_worker_gcp, an interactive shell,
+# etc.) picks it up automatically, no activation step needed.
+RUN python3 -m venv /opt/venv
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}"
+
 WORKDIR /app
 COPY . /app
 
 # Mirrors the install steps in .github/workflows/python-package-conda.yml
-RUN uv pip install --system --no-cache-dir -r requirements.txt \
-    && uv pip install --system --no-cache-dir -e .
+RUN uv pip install --no-cache-dir -r requirements.txt \
+    && uv pip install --no-cache-dir -e .
 
 # SpaceShip.spawn_worker_gcp() mounts a GCS bucket at the output directory
 # (self.outdir, resolved to an absolute path under /app) so that parallel
